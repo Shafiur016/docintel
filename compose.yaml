@@ -1,0 +1,41 @@
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: docintel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: docintel
+    volumes: [docintel_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U docintel"]
+      interval: 5s
+      retries: 12
+  redis:
+    image: redis:7-alpine
+  api:
+    build: .
+    ports: ["8001:8001"]
+    environment: &env
+      ENVIRONMENT: production
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      DATABASE_URL: postgresql+psycopg://docintel:${POSTGRES_PASSWORD}@db:5432/docintel
+      REDIS_URL: redis://redis:6379/0
+      PROCESS_MODE: celery
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ENABLE_LLM: ${ENABLE_LLM:-0}
+      INPUT_USD_PER_1M: ${INPUT_USD_PER_1M:-0}
+      OUTPUT_USD_PER_1M: ${OUTPUT_USD_PER_1M:-0}
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_started}
+  worker:
+    build: .
+    environment:
+      <<: *env
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=info"]
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_started}
+volumes:
+  docintel_data:
